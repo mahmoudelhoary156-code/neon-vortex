@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEON VORTEX: ULTIMATE PRO</title>
+    <style>
+        :root { --p: #00f2ff; --s: #bc13fe; --a: #ff00c8; --bg: #010103; --gold: #ffd700; }
+        * { box-sizing: border-box; touch-action: none; user-select: none; outline: none; }
+        body { margin: 0; background: var(--bg); font-family: 'Segoe UI', sans-serif; color: white; overflow: hidden; height: 100vh; }
+        canvas { display: block; filter: contrast(1.1) saturate(1.2); }
+        .screen { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.95); backdrop-filter: blur(20px); z-index: 100; transition: 0.5s; }
+        .hidden { display: none !important; }
+        h1 { font-size: clamp(2.5rem, 8vw, 4rem); margin: 0; background: linear-gradient(to right, var(--p), var(--a)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 15px var(--p)); text-align: center; }
+        .btn { background: rgba(255,255,255,0.05); border: 2px solid var(--p); color: var(--p); padding: 15px 40px; font-size: 1.1rem; cursor: pointer; border-radius: 12px; font-weight: 900; transition: 0.3s; margin: 10px; min-width: 250px; text-transform: uppercase; }
+        .btn:hover { background: var(--p); color: black; box-shadow: 0 0 30px var(--p); }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 90%; max-width: 400px; margin: 20px 0; overflow-y: auto; max-height: 50vh; padding: 10px; }
+        .stat-card { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; border: 1px solid #333; text-align: center; cursor: pointer; transition: 0.2s; }
+        .stat-card.locked { opacity: 0.6; grayscale: 1; }
+        .stat-card span { display: block; font-size: 0.7rem; color: #888; margin-bottom: 5px; }
+        .stat-card b { font-size: 1.1rem; color: var(--p); }
+        .stat-card .price { color: var(--gold); font-size: 0.9rem; }
+        #lvl-tag { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); font-weight: bold; color: var(--a); font-size: 1.5rem; text-shadow: 0 0 10px var(--a); z-index: 50; }
+        #coin-count { position: absolute; top: 20px; right: 20px; color: var(--gold); font-weight: bold; font-size: 1.2rem; z-index: 200; }
+        #toast { position: fixed; top: -100px; left: 50%; transform: translateX(-50%); background: var(--a); color: #fff; padding: 10px 30px; border-radius: 50px; font-weight: bold; z-index: 1000; transition: 0.4s; }
+    </style>
+</head>
+<body>
+
+<div id="toast">NOT ENOUGH COINS!</div>
+<div id="coin-count">💰 <span id="top-coins">0</span></div>
+
+<div id="splash-screen" class="screen">
+    <h1>NEON VORTEX</h1>
+    <p style="color: var(--p); letter-spacing: 4px;">INITIALIZING PRO SYSTEM...</p>
+    <div style="width: 200px; height: 4px; background: #222; margin-top: 20px; border-radius: 2px; overflow: hidden;">
+        <div id="loader" style="width: 0%; height: 100%; background: var(--p); transition: 1.5s;"></div>
+    </div>
+</div>
+
+<div id="menu-screen" class="screen hidden">
+    <h1>NEON VORTEX</h1>
+    <button class="btn" id="startBtn">START MISSION</button>
+    <button class="btn" id="shopBtn">ARMORY / SHOP</button>
+    <button class="btn" id="langBtn">LANG: EN</button>
+</div>
+
+<div id="shop-screen" class="screen hidden">
+    <h1 style="color: var(--s);">ARMORY / SHOP</h1>
+    <div style="color: var(--gold); margin-bottom: 10px;">YOUR COINS: <span id="shop-coins-val">0</span></div>
+    <div id="skin-grid" class="stats-grid"></div>
+    <button class="btn" onclick="UI.show('menu-screen')">BACK TO MENU</button>
+</div>
+
+<div id="gameover-screen" class="screen hidden">
+    <h1 style="color: var(--a);">MISSION FAILED</h1>
+    <div class="stats-grid">
+        <div class="stat-card"><span id="l_score">SCORE</span><b id="res-score">0</b></div>
+        <div class="stat-card"><span id="l_lvl">LEVEL</span><b id="res-lvl">1</b></div>
+        <div class="stat-card"><span id="l_coins">COINS</span><b id="res-coins">0</b></div>
+        <div class="stat-card"><span id="l_dist">DISTANCE</span><b id="res-dist">0m</b></div>
+    </div>
+    <button class="btn" onclick="location.reload()">RE-INITIALIZE</button>
+</div>
+
+<div id="lvl-tag" class="hidden">LEVEL 1</div>
+<canvas id="stage"></canvas>
+
+<script>
+const SFX = {
+    ctx: new (window.AudioContext || window.webkitAudioContext)(),
+    play(f, type, d, vol) {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = type; o.frequency.setValueAtTime(f, this.ctx.currentTime);
+        g.gain.setValueAtTime(vol, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + d);
+        o.connect(g); g.connect(this.ctx.destination);
+        o.start(); o.stop(this.ctx.currentTime + d);
+    }
+};
+
+const UI = {
+    langs: {
+        EN: { start: "START MISSION", shop: "SHOP", score: "SCORE", coins: "COINS", dist: "DISTANCE", level: "LEVEL" },
+        AR: { start: "ابدأ المهمة", shop: "المتجر", score: "النقاط", coins: "العملات", dist: "المسافة", level: "المستوى" }
+    },
+    currentLang: localStorage.getItem("lang") || "EN",
+    t(k) { return this.langs[this.currentLang][k] || k },
+    apply() {
+        document.getElementById("startBtn").innerText = this.t("start");
+        document.getElementById("shopBtn").innerText = this.t("shop");
+        document.getElementById("l_score").innerText = this.t("score");
+        document.getElementById("l_lvl").innerText = this.t("level");
+        document.getElementById("l_coins").innerText = this.t("coins");
+        document.getElementById("l_dist").innerText = this.t("dist");
+        document.body.dir = this.currentLang === "AR" ? "rtl" : "ltr";
+        document.getElementById("top-coins").innerText = Game.totalCoins;
+    },
+    show(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+        if (id !== 'none') document.getElementById(id).classList.remove('hidden');
+        if (id === 'shop-screen') document.getElementById('shop-coins-val').innerText = Game.totalCoins;
+    },
+    toast(msg) {
+        const t = document.getElementById('toast');
+        t.innerText = msg;
+        t.style.top = "20px";
+        setTimeout(() => t.style.top = "-100px", 2000);
+    }
+};
+
+const Game = {
+    canvas: document.getElementById("stage"),
+    active: false, score: 0, coinsEarned: 0, 
+    totalCoins: parseInt(localStorage.getItem("vortex_coins")) || 0,
+    level: 1,
+    activeSkin: parseInt(localStorage.getItem("vortex_skin")) || 0,
+    ownedSkins: JSON.parse(localStorage.getItem("vortex_owned")) || [0], // الجلد رقم 0 مجاني دائماً
+    distance: 0, obstacles: [], particles: [],
+    shake: 0, hue: 190,
+    player: { x: 100, y: 0, v: 0, s: 15 },
+    // سعر الجلود يزيد تدريجياً
+    skins: [...Array(20)].map((_, i) => ({ 
+        n: `SKIN-${i+1}`, 
+        t: i%2===0?'circle':'rect', 
+        c: `hsl(${i*45},100%,50%)`, 
+        p: i * 50 // السعر: الجلد الأول 0، الثاني 50، الثالث 100... إلخ
+    })),
+
+    init() {
+        this.ctx = this.canvas.getContext('2d');
+        window.onresize = () => { this.canvas.width = innerWidth; this.canvas.height = innerHeight; };
+        window.onresize();
+        UI.apply();
+
+        setTimeout(() => {
+            document.getElementById('loader').style.width = "100%";
+            setTimeout(() => UI.show('menu-screen'), 1600);
+        }, 500);
+
+        const jump = () => { 
+            if(this.active) {
+                this.player.v = -8; 
+                SFX.play(400, 'square', 0.1, 0.1);
+            } 
+        };
+        window.onmousedown = jump; window.ontouchstart = jump;
+
+        document.getElementById('shopBtn').onclick = () => this.renderShop();
+        this.loop();
+    },
+
+    renderShop() {
+        const grid = document.getElementById('skin-grid');
+        grid.innerHTML = '';
+        this.skins.forEach((skin, i) => {
+            const isOwned = this.ownedSkins.includes(i);
+            const isActive = this.activeSkin === i;
+            
+            const card = document.createElement('div');
+            card.className = `stat-card ${!isOwned ? 'locked' : ''}`;
+            card.style.borderColor = skin.c;
+            
+            let statusText = isOwned ? (isActive ? "EQUIPPED" : "SELECT") : `BUY: ${skin.p} 💰`;
+            
+            card.innerHTML = `
+                <b style="color:${skin.c}">${skin.n}</b>
+                <span class="${!isOwned ? 'price' : ''}">${statusText}</span>
+            `;
+
+            card.onclick = () => {
+                if (isOwned) {
+                    this.activeSkin = i;
+                    localStorage.setItem("vortex_skin", i);
+                    SFX.play(600, 'sine', 0.1, 0.2);
+                    this.renderShop();
+                } else {
+                    if (this.totalCoins >= skin.p) {
+                        this.totalCoins -= skin.p;
+                        this.ownedSkins.push(i);
+                        this.activeSkin = i;
+                        localStorage.setItem("vortex_coins", this.totalCoins);
+                        localStorage.setItem("vortex_skin", i);
+                        localStorage.setItem("vortex_owned", JSON.stringify(this.ownedSkins));
+                        UI.apply();
+                        SFX.play(800, 'sine', 0.3, 0.3);
+                        this.renderShop();
+                        document.getElementById('shop-coins-val').innerText = this.totalCoins;
+                    } else {
+                        UI.toast("NOT ENOUGH COINS!");
+                        SFX.play(150, 'sawtooth', 0.2, 0.2);
+                    }
+                }
+            };
+            grid.appendChild(card);
+        });
+        UI.show('shop-screen');
+    },
+
+    start() {
+        this.active = true; this.score = 0; this.coinsEarned = 0; this.distance = 0;
+        this.obstacles = []; this.particles = []; this.player.y = innerHeight/2; this.player.v = 0;
+        this.level = 1;
+        UI.show('none');
+        document.getElementById('lvl-tag').classList.remove('hidden');
+        document.getElementById('lvl-tag').innerText = "LEVEL 1";
+        SFX.play(200, 'sine', 0.4, 0.2);
+    },
+
+    die() {
+        this.active = false; this.shake = 30;
+        this.spawnExplosion(this.player.x, this.player.y, this.skins[this.activeSkin].c);
+        SFX.play(60, 'sawtooth', 0.8, 0.3);
+        
+        setTimeout(() => {
+            document.getElementById('res-score').innerText = Math.floor(this.score);
+            document.getElementById('res-lvl').innerText = this.level;
+            document.getElementById('res-coins').innerText = this.coinsEarned;
+            document.getElementById('res-dist').innerText = Math.floor(this.distance) + "m";
+            UI.show('gameover-screen');
+            UI.apply();
+        }, 1200);
+    },
+
+    spawnExplosion(x, y, color) {
+        for(let i=0; i<20; i++) {
+            this.particles.push({ x, y, color, vx: (Math.random()-0.5)*12, vy: (Math.random()-0.5)*12, life: 1.0 });
+        }
+    },
+
+    update() {
+        if(!this.active) {
+            this.particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+                if(p.life <= 0) this.particles.splice(i, 1);
+            });
+            return;
+        }
+
+        this.player.v += 0.45;
+        this.player.y += this.player.v;
+        this.distance += 0.2;
+
+        let nextLvl = Math.min(50, Math.floor(this.score / 5) + 1);
+        if(nextLvl > this.level) {
+            this.level = nextLvl;
+            document.getElementById('lvl-tag').innerText = "LEVEL " + this.level;
+            SFX.play(800, 'sine', 0.2, 0.2);
+        }
+
+        const speed = 6 + (this.level * 0.4);
+        const gap = Math.max(140, 260 - (this.level * 3));
+
+        if(this.obstacles.length === 0 || (innerWidth - this.obstacles[this.obstacles.length-1].x) > 350) {
+            const h = Math.random() * (innerHeight - gap - 200) + 100;
+            this.obstacles.push({x: innerWidth, y: 0, w: 70, h: h, p: false});
+            this.obstacles.push({x: innerWidth, y: h + gap, w: 70, h: innerHeight, p: false});
+        }
+
+        this.obstacles.forEach(o => {
+            o.x -= speed;
+            if(this.player.x+12 > o.x && this.player.x-12 < o.x+o.w && this.player.y+12 > o.y && this.player.y-12 < o.y+o.h) this.die();
+            if(!o.p && o.x < this.player.x) {
+                o.p = true; this.score += 0.5;
+                if(this.score % 1 === 0) {
+                    this.coinsEarned++; this.totalCoins++;
+                    localStorage.setItem("vortex_coins", this.totalCoins);
+                    SFX.play(1000, 'sine', 0.1, 0.1);
+                }
+            }
+        });
+
+        if(this.player.y > innerHeight || this.player.y < 0) this.die();
+        this.obstacles = this.obstacles.filter(o => o.x > -100);
+    },
+
+    draw() {
+        const ctx = this.ctx;
+        ctx.fillStyle = '#010103';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        if(this.shake > 0) {
+            ctx.save();
+            ctx.translate((Math.random()-0.5)*this.shake, (Math.random()-0.5)*this.shake);
+            this.shake *= 0.85;
+        }
+
+        this.obstacles.forEach(o => {
+            ctx.strokeStyle = `hsl(${this.hue + (this.level*10)}, 100%, 50%)`;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 15; ctx.shadowColor = ctx.strokeStyle;
+            ctx.strokeRect(o.x, o.y, o.w, o.h);
+        });
+
+        this.particles.forEach(p => {
+            ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, 3, 3);
+        });
+        ctx.globalAlpha = 1;
+
+        const s = this.skins[this.activeSkin];
+        ctx.fillStyle = s.c; ctx.shadowBlur = 25; ctx.shadowColor = s.c;
+        if(s.t === 'circle') { ctx.beginPath(); ctx.arc(this.player.x, this.player.y, 15, 0, Math.PI*2); ctx.fill(); }
+        else { ctx.fillRect(this.player.x-15, this.player.y-15, 30, 30); }
+
+        if(this.shake > 0) ctx.restore();
+    },
+
+    loop() {
+        this.update(); this.draw();
+        requestAnimationFrame(() => this.loop());
+    }
+};
+
+Game.init();
+document.getElementById('startBtn').onclick = () => Game.start();
+</script>
+</body>
+</html>
